@@ -1,3 +1,4 @@
 env
 .cache
 combat_atlas
+__pycache__
