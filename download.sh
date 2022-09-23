@@ -24,3 +24,19 @@ download CBD-KEY-CYTOF-MYELOID.tar.gz
 download CBD-KEY-CYTOF-WB-D.tar.gz
 download CBD-KEY-CYTOF-WB.tar.gz
 
+ftp=https://ftp.pride.ebi.ac.uk/pride/data/archive/2022/02/PXD023175/
+proteomics=$cache/CBD-KEY-PROTEOMICS
+mkdir -p $proteomics
+function proteomics_download() {
+    file=$1
+    [ -e $proteomics/$file ] || curl $ftp/$file -o $proteomics/$file
+}
+
+proteomics_download checksum.txt
+proteomics_download README.txt
+proteomics_download sample_key.xlsx
+
+cat $proteomics/README.txt | grep pepXML | tr '\t' '#' | cut -f2 -d'#' | while read x; do
+    echo $x
+    proteomics_download $x
+done
