@@ -29,7 +29,10 @@ proteomics=$cache/CBD-KEY-PROTEOMICS
 mkdir -p $proteomics
 function proteomics_download() {
     file=$1
-    [ -e $proteomics/$file ] || ( curl $ftp/$file -o $proteomics/tmp.$file && mv $proteomics/tmp.$file $proteomics/$file )
+    sum=$2
+    file1=$proteomics/$file
+    [ ! -e $file1 ] || ( [ "$sum" != "" -a "$(shasum $file1 | sed 's/  .*$//')" != "$sum" ] && rm $file1 )
+    [ -e $file1 ] || ( curl $ftp/$file -o $proteomics/tmp.$file && mv $proteomics/tmp.$file $file1 )
 }
 
 proteomics_download checksum.txt
@@ -41,7 +44,8 @@ cat $proteomics/README.txt | grep pepXML | tr '\t' '#' | cut -f2 -d'#' | while r
     proteomics_download $x
 done
 
-cat $proteomics/README.txt | grep raw | tr '\t' '#' | cut -f2 -d'#' | while read x; do
-    echo $x
-    proteomics_download $x
-done
+cat $proteomics/checksum.txt | sed '/^#/d' | cut -f4 -d'\' |
+    grep raw | while read file sum; do
+        echo $file $sum
+        proteomics_download $file $sum
+    done
