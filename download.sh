@@ -1,4 +1,4 @@
-#!/binbash
+#!/bin/bash
 
 url=https://zenodo.org/record/6120249/files
 cache=~/.cache/combat-atlas/download
@@ -29,7 +29,7 @@ proteomics=$cache/CBD-KEY-PROTEOMICS
 mkdir -p $proteomics
 function proteomics_download() {
     file=$1
-    [ -e $proteomics/$file ] || curl $ftp/$file -o $proteomics/$file
+    [ -e $proteomics/$file ] || ( curl $ftp/$file -o $proteomics/tmp.$file && mv $proteomics/tmp.$file $proteomics/$file )
 }
 
 proteomics_download checksum.txt
@@ -37,6 +37,11 @@ proteomics_download README.txt
 proteomics_download sample_key.xlsx
 
 cat $proteomics/README.txt | grep pepXML | tr '\t' '#' | cut -f2 -d'#' | while read x; do
+    echo $x
+    proteomics_download $x
+done
+
+cat $proteomics/README.txt | grep raw | tr '\t' '#' | cut -f2 -d'#' | while read x; do
     echo $x
     proteomics_download $x
 done

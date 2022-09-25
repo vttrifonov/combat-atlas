@@ -23,7 +23,7 @@ ls -1 $cache/*.pepXML | while read x; do
 
     mkdir -p $y
     mv *.tsv $y/
-    mv *.xml $y/
+    mv *.xml $y/    
     mv protein.fas $y/
     rm input.pepXML
 done 
