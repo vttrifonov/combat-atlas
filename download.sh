@@ -40,13 +40,8 @@ proteomics_download README.txt
 proteomics_download sample_key.xlsx
 
 cat $proteomics/checksum.txt | sed '/^#/d' | cut -f4 -d'\' |
-    grep pepXML | while read file sum; do
+    while read file sum; do
         echo $file $sum
         proteomics_download $file $sum
     done
 
-cat $proteomics/checksum.txt | sed '/^#/d' | cut -f4 -d'\' |
-    grep raw | while read file sum; do
-        echo $file $sum
-        proteomics_download $file $sum
-    done
