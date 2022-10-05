@@ -8,7 +8,6 @@ import combat_atlas.common.helpers
 from combat_atlas import data, config
 from combat_atlas.common.caching import compose, lazy, XArrayCache
 
-
 # %%
 class _analysis:
     storage = config.cache/'playground1'
@@ -269,6 +268,22 @@ if __name__ == '__main__':
             theme(legend_position='none')
     )
 
+    # %%
+    x3 = self.data1.copy()
+    x3['bulk_mat'] = 1e6*x3.bulk_mat/x3.bulk_mat.sum(dim='gene_id')
+    x3['pseudo_mat'] = 1e6*x3.pseudo_mat/x3.pseudo_mat.sum(dim='gene_id')
+    x3 = x3.sel(sample_id=x3.clin_Source!='COVID_HCW_MILD')
+
+    # %%
+    x2 = x3.sel(gene_id=x3.feature_id=='C5AR1').to_dataframe().reset_index()
+    print(
+        ggplot(x2)+aes('clin_Source', 'pseudo_mat')+
+            geom_violin(aes(fill='clin_Source'))+
+            geom_jitter(width=0.2)+
+            facet_grid('cell_type~.', scales='free_y')+
+            labs(y=f'{x2.feature_id.iloc[0]} psuedobulk (RPM)')+            
+            theme(legend_position='none', figure_size=(4, 18*2))
+    )
 
     # %%
     import statsmodels.api as sm
