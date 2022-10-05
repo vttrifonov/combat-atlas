@@ -1,12 +1,15 @@
 # %%
+if __name__ == '__main__':
+    __package__ = 'combat_atlas.playground1'
+
+# %%
 import pandas as pd
 import numpy as np
 import xarray as xa
-import matplotlib.pyplot as plt
 from plotnine import *
-import combat_atlas.common.helpers
-from combat_atlas import data, config
-from combat_atlas.common.caching import compose, lazy, XArrayCache
+from ..common import helpers
+from .. import data, config
+from ..common.caching import compose, lazy, XArrayCache
 
 # %%
 class _analysis:
@@ -150,6 +153,33 @@ class _analysis:
         return x
 
     @compose(property, lazy)
+    def cell_type_freq1(self):
+        import statsmodels.api as sm
+
+        x = self.data1.copy()
+        x1 = x[['pseudo_mat', 'bulk_mat', 'pseudo_num_cells', 'feature_id']].copy()
+        x1['bulk_mat'] = 1e6*x1.bulk_mat/x1.bulk_mat.sum(dim='gene_id')
+        x1['pseudo_mat'] = 1e6*x1.pseudo_mat/x1.pseudo_mat.sum(dim='gene_id')
+        x2 = x1.bulk_mat
+        x1['bulk_mean'] = x2.mean(dim='sample_id')
+        x1['bulk_std'] = x2.std(dim='sample_id')
+        x1['bulk_mat'] = (x2-x1.bulk_mean)/x1.bulk_std
+        x2 = x1.pseudo_mat
+        x1['pseudo_mat'] = (x2-x2.mean(dim='sample_id'))/x2.std(dim='sample_id')
+        x1 = x1.sel(gene_id=x1.bulk_mat.isnull().sum(dim='sample_id')==0)
+        x1 = x1.fillna(0)
+        x2 = xa.apply_ufunc(
+            lambda X, y: sm.OLS(y, X).fit().params,
+            x1.pseudo_mat, x1.bulk_mat,
+            input_core_dims=[['gene_id', 'cell_type'], ['gene_id']],
+            output_core_dims=[['cell_type']],
+            vectorize=True
+        )
+        x1['coef'] = x2
+
+        return x1
+
+    @compose(property, lazy)
     def data1(self):
         x1 = self.pseudobulk1
         x1 = x1.rename(
@@ -212,101 +242,4 @@ analysis = _analysis()
 if __name__ == '__main__':
     self = analysis
 
-    # %%
-    x3 = self.data1.copy()
-    x3['bulk_mat'] = 1e6*x3.bulk_mat/x3.bulk_mat.sum(dim='gene_id')
-    x3['pseudo_mat'] = x3.pseudo_mat.sum(dim='cell_type')
-    x3['pseudo_mat'] = 1e6*x3.pseudo_mat/x3.pseudo_mat.sum(dim='gene_id')
-    x3 = x3.sel(sample_id=x3.clin_Source!='COVID_HCW_MILD')
-
-    # %%
-    x2 = x3.sel(gene_id=x3.feature_id=='C5AR1').to_dataframe().reset_index()    
-    print(
-        ggplot(x2)+aes('bulk_mat', 'pseudo_mat')+
-            geom_point()+
-            geom_smooth(method='lm')+
-            geom_hline(yintercept=x2.pseudo_mat.mean(), linetype='--')+
-            labs(
-                x='bulk (RPM)', y='pseudbulkd (RPM)', 
-                title=f'{x2.feature_id.iloc[0]} (R={x2[["bulk_mat", "pseudo_mat"]].corr().to_numpy()[0,1]:.2f})'
-            )
-    )
-
-    # %%
-    x2 = x3.isel(sample_id=0).to_dataframe().reset_index()
-    x2['f'] = x2.feature_id.str.contains("^RPL|^RPS|^MT-", regex=True)
-    x2 = x2.sort_values('f')
-
-    print(
-        ggplot(x2)+aes('np.log10(bulk_mat)', 'np.log10(pseudo_mat)')+
-            geom_point(aes(color='f'))+
-            geom_smooth(method='lm')+
-            geom_abline(slope=1, intercept=0)+
-            labs(
-                x='bulk (RPM)', y='pseudbulkd (RPM)',
-                color='RP|MT'
-            )
-    )
-
-    # %%
-    x2 = x3.sel(gene_id=x3.feature_id=='C5AR1').to_dataframe().reset_index()
-    print(
-        ggplot(x2)+aes('clin_Source', 'bulk_mat')+
-            geom_violin(aes(fill='clin_Source'))+
-            geom_jitter(width=0.2)+
-            coord_flip()+
-            labs(x=f'{x2.feature_id.iloc[0]} bulk (RPM)')+
-            theme(legend_position='none')
-    )
-
-    print(
-        ggplot(x2)+aes('clin_Source', 'pseudo_mat')+
-            geom_violin(aes(fill='clin_Source'))+
-            geom_jitter(width=0.2)+
-            coord_flip()+
-            labs(x=f'{x2.feature_id.iloc[0]} psuedobulk (RPM)')+
-            theme(legend_position='none')
-    )
-
-    # %%
-    x3 = self.data1.copy()
-    x3['bulk_mat'] = 1e6*x3.bulk_mat/x3.bulk_mat.sum(dim='gene_id')
-    x3['pseudo_mat'] = 1e6*x3.pseudo_mat/x3.pseudo_mat.sum(dim='gene_id')
-    x3 = x3.sel(sample_id=x3.clin_Source!='COVID_HCW_MILD')
-
-    # %%
-    x2 = x3.sel(gene_id=x3.feature_id=='C5AR1').to_dataframe().reset_index()
-    print(
-        ggplot(x2)+aes('clin_Source', 'pseudo_mat')+
-            geom_violin(aes(fill='clin_Source'))+
-            geom_jitter(width=0.2)+
-            facet_grid('cell_type~.', scales='free_y')+
-            labs(y=f'{x2.feature_id.iloc[0]} psuedobulk (RPM)')+            
-            theme(legend_position='none', figure_size=(4, 18*2))
-    )
-
-    # %%
-    import statsmodels.api as sm
-
-    x = self.data1.copy()
-    x1 = x[['pseudo_mat', 'bulk_mat', 'pseudo_num_cells', 'feature_id']].copy()
-    x1['bulk_mat'] = 1e6*x1.bulk_mat/x1.bulk_mat.sum(dim='gene_id')
-    x1['pseudo_mat'] = 1e6*x1.pseudo_mat/x1.pseudo_mat.sum(dim='gene_id')
-    x2 = x1.bulk_mat
-    x1['bulk_mean'] = x2.mean(dim='sample_id')
-    x1['bulk_std'] = x2.std(dim='sample_id')
-    x1['bulk_mat'] = (x2-x1.bulk_mean)/x1.bulk_std
-    x2 = x1.pseudo_mat
-    x1['pseudo_mat'] = (x2-x2.mean(dim='sample_id'))/x2.std(dim='sample_id')
-    x1 = x1.sel(gene_id=x1.bulk_mat.isnull().sum(dim='sample_id')==0)
-    x1 = x1.fillna(0)
-    x2 = xa.apply_ufunc(
-        lambda X, y: sm.OLS(y, X).fit().params,
-        x1.pseudo_mat, x1.bulk_mat,
-        input_core_dims=[['gene_id', 'cell_type'], ['gene_id']],
-        output_core_dims=[['cell_type']],
-        vectorize=True
-    )
-    x1['coef'] = x2
-
-    # %%
+# %%
