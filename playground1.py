@@ -19,7 +19,17 @@ class _analysis:
 
         o = x.obs.copy()
 
-        x1 = o[['scRNASeq_sample_ID', 'Annotation_major_subset', 'Annotation_minor_subset']]
+        x1 = o[['scRNASeq_sample_ID', 'Annotation_major_subset', 'Annotation_minor_subset']].copy()
+        x1['Annotation_major_subset'] = np.where(
+            x1.Annotation_minor_subset=='cMono.PLT', 
+            'cMono', 
+            x1.Annotation_major_subset
+        )
+        x1['Annotation_minor_subset'] = np.where(
+            (x1.Annotation_major_subset!='nan') & (x1.Annotation_minor_subset=='nan'),
+            x1.Annotation_major_subset,
+            x1.Annotation_minor_subset
+        )
         x1 = x1.to_xarray()
         x1 = x1.rename(index='cell_id').rename({k: 'cell_'+k for k in x1.keys()})
 
@@ -147,99 +157,166 @@ if __name__ == '__main__':
     self = analysis
 
     # %%
-    x1 = self.annot.feature_gene_ids.sel(feature_id='C5AR1')
+    x1 = self.pseudobulk1
+    x1 = x1.rename(
+        pseudo1_Annotation_major_subset='cell_type'
+    )
+    x1 = xa.merge([
+        x1, 
+        self.annot.feature_gene_ids.rename('gene_id')
+    ]).set_coords('gene_id').\
+        swap_dims(feature_id='gene_id')
 
+    x3 = self.annot.cells_COMBAT_participant_timepoint_ID.sel(
+        scRNASeq_sample_ID=x1.pseudo1_scRNASeq_sample_ID
+    ).rename('COMBAT_participant_timepoint_ID').drop('scRNASeq_sample_ID')
+    x1 = xa.merge([x1, x3])
+
+    x3 = [
+        x1.COMBAT_participant_timepoint_ID.to_series(), 
+        x1.cell_type.to_series()
+    ]
+    x3 = pd.MultiIndex.from_tuples(list(zip(*x3)))
+    x3 = xa.DataArray(x3, [x1.pseudo1_id], name='new_id')
+    x1 = x1.groupby(x3).apply(lambda x: xa.merge([
+        x.pseudo1_mat.sum(dim='pseudo1_id').rename('pseudo_mat'),
+        x.pseudo1_num_cells.sum(dim='pseudo1_id').rename('pseudo_num_cells')
+    ])).unstack('new_id').rename(
+        new_id_level_0='COMBAT_participant_timepoint_ID',
+        new_id_level_1='cell_type'
+    )
+    x1 = x1.fillna(0)
+    
     x2 = self.bulk
-    x2 = 1e6*x2/x2.sum(dim='gene_id')
-    x2 = x2.sel(gene_id=x1.data)
     x2 = xa.merge([
         x2,
-        self.annot[['RNASeq_sample_ID', 'bulk_COMBAT_participant_timepoint_ID']].\
-                rename(bulk_COMBAT_participant_timepoint_ID='COMBAT_participant_timepoint_ID')
-    ]).to_dataframe().reset_index()
+        self.annot.bulk_COMBAT_participant_timepoint_ID.\
+            rename('COMBAT_participant_timepoint_ID')
+    ], join='inner').set_coords('COMBAT_participant_timepoint_ID').\
+        swap_dims(RNASeq_sample_ID='COMBAT_participant_timepoint_ID').\
+        drop('RNASeq_sample_ID')
 
-    x3 = self.pseudobulk2.pseudo2_mat
-    x3 = 1e6*x3/x3.sum(dim='feature_id')
-    x3 = x3.sel(feature_id=x1.feature_id.data)
-    x3 = xa.merge([
-        x3.rename(pseudo2_id='scRNASeq_sample_ID'),
-        self.annot[['scRNASeq_sample_ID', 'cells_COMBAT_participant_timepoint_ID']].\
-                rename(cells_COMBAT_participant_timepoint_ID='COMBAT_participant_timepoint_ID')                
-    ]).to_dataframe().reset_index()
+    x1 = xa.merge([x1, x2], join='inner')
 
-    x4 = pd.merge(x2, x3)
+    x1 = x1.merge(
+        self.annot.drop_dims(set(self.annot.dims)-set(['COMBAT_participant_timepoint_ID'])),
+        join='inner'
+    )
+    x1 = x1.merge(
+        self.annot.drop_dims(set(self.annot.dims)-set(['COMBAT_ID'])).\
+            sel(COMBAT_ID=x1.clin_COMBAT_ID).drop('COMBAT_ID'),
+        join='inner'
+    )
 
+    x1 = x1.rename(COMBAT_participant_timepoint_ID='sample_id')
+
+    x = x1
+
+    # %%
+    x2 = x.copy()
+    x2['bulk_mat'] = 1e6*x2.bulk_mat/x2.bulk_mat.sum(dim='gene_id')
+    x2['pseudo_mat'] = x2.pseudo_mat.sum(dim='cell_type')
+    x2['pseudo_mat'] = 1e6*x2.pseudo_mat/x2.pseudo_mat.sum(dim='gene_id')
+    x2 = x2.drop_dims('cell_type')
+    x2 = x2.sel(gene_id=x2.feature_id=='C5AR1').to_dataframe()
+    x2 = x2[x2.clin_Source!='COVID_HCW_MILD']
     print(
-        ggplot(x4)+aes('bulk_mat', 'pseudo2_mat')+
+        ggplot(x2)+aes('bulk_mat', 'pseudo_mat')+
             geom_point()+
             geom_smooth(method='lm')+
-            geom_hline(yintercept=x4.pseudo2_mat.mean(), linetype='--')+
+            geom_hline(yintercept=x2.pseudo_mat.mean(), linetype='--')+
             labs(
                 x='bulk (RPM)', y='pseudbulkd (RPM)', 
-                title=f'C5AR1 (R={x4[["bulk_mat", "pseudo2_mat"]].corr().to_numpy()[0,1]:.2f})'
+                title=f'{x2.feature_id.iloc[0]} (R={x2[["bulk_mat", "pseudo_mat"]].corr().to_numpy()[0,1]:.2f})'
             )
     )
 
     # %%
-    x1 = self.annot.feature_gene_ids.sel(feature_id='C5AR1')
+    x2 = x.copy()
+    x2['bulk_mat'] = 1e6*x2.bulk_mat/x2.bulk_mat.sum(dim='gene_id')
+    x2['pseudo_mat'] = x2.pseudo_mat.sum(dim='cell_type')
+    x2['pseudo_mat'] = 1e6*x2.pseudo_mat/x2.pseudo_mat.sum(dim='gene_id')
+    x2 = x2.drop_dims('cell_type')
+    x2 = x2.sel(COMBAT_participant_timepoint_ID=x2.clin_Source!='COVID_HCW_MILD')
+    x2 = x2.isel(COMBAT_participant_timepoint_ID=0)
+    x2 = x2.to_dataframe().reset_index()
+    x2['f'] = x2.feature_id.str.contains("^RPL|^RPS|^MT-", regex=True)
+    x2 = x2.sort_values('f')
+    print(
+        ggplot(x2)+aes('np.log10(bulk_mat)', 'np.log10(pseudo_mat)')+
+            geom_point(aes(color='f'))+
+            geom_smooth(method='lm')+
+            geom_abline(slope=1, intercept=0)+
+            labs(
+                x='bulk (RPM)', y='pseudbulkd (RPM)',
+                color='RP|MT'
+            )
+    )
 
-    x2 = self.bulk
+    # %%
+    x2 = x.bulk_mat
     x2 = 1e6*x2/x2.sum(dim='gene_id')
-    x2 = x2.sel(gene_id=x1)
+    x2 = x2.sel(gene_id=x2.feature_id=='C5AR1')
     x2 = xa.merge([
         x2,
-        self.annot[['RNASeq_sample_ID', 'bulk_COMBAT_participant_timepoint_ID']].\
-            rename(bulk_COMBAT_participant_timepoint_ID='COMBAT_participant_timepoint_ID')
+        x.drop_dims(set(x.dims)-set(['COMBAT_participant_timepoint_ID']))
     ]).to_dataframe()
-    x2 = x2.merge(
-        self.annot.drop_dims(list(set(self.annot.dims)-set(['COMBAT_participant_timepoint_ID']))).\
-            rename(clin_COMBAT_ID='COMBAT_ID').to_dataframe().reset_index()
-    )
-    x2 = x2.merge(
-        self.annot.drop_dims(list(set(self.annot.dims)-set(['COMBAT_ID']))).\
-            to_dataframe().reset_index()
-    )
+    x2 = x2[x2.clin_Source!='COVID_HCW_MILD']
 
     print(
         ggplot(x2)+aes('clin_Source', 'bulk_mat')+
             geom_violin(aes(fill='clin_Source'))+
             geom_jitter(width=0.2)+
             coord_flip()+
-            labs(x='C5AR1 bulk (RPM)')+
+            labs(x=f'{x2.feature_id.iloc[0]} bulk (RPM)')+
             theme(legend_position='none')
     )
 
     # %%
-    x1 = self.annot.feature_gene_ids.sel(feature_id='C5AR1')
-
-    x2 = self.pseudobulk2
-    x2 = 1e6*x2/x2.sum(dim='feature_id')
-    x2 = x2.sel(feature_id=x1.feature_id)
+    x2 = x.pseudo_mat.sum(dim='cell_type')
+    x2 = 1e6*x2/x2.sum(dim='gene_id')
+    x2 = x2.sel(gene_id=x2.feature_id=='C5AR1')
     x2 = xa.merge([
         x2,
-        self.annot[['scRNASeq_sample_ID', 'cells_COMBAT_participant_timepoint_ID']].\
-            rename(
-                scRNASeq_sample_ID='pseudo2_id',
-                cells_COMBAT_participant_timepoint_ID='COMBAT_participant_timepoint_ID'
-            )
+        x.drop_dims(set(x.dims)-set(['COMBAT_participant_timepoint_ID']))
     ]).to_dataframe()
-    x2 = x2.merge(
-        self.annot.drop_dims(list(set(self.annot.dims)-set(['COMBAT_participant_timepoint_ID']))).\
-            rename(clin_COMBAT_ID='COMBAT_ID').to_dataframe().reset_index()
-    )
-    x2 = x2.merge(
-        self.annot.drop_dims(list(set(self.annot.dims)-set(['COMBAT_ID']))).\
-            to_dataframe().reset_index()
-    )
+    x2 = x2[x2.clin_Source!='COVID_HCW_MILD']
 
     print(
-        ggplot(x2)+aes('clin_Source', 'pseudo2_mat')+
+        ggplot(x2)+aes('clin_Source', 'pseudo_mat')+
             geom_violin(aes(fill='clin_Source'))+
             geom_jitter(width=0.2)+
             coord_flip()+
-            labs(x='C5AR1 pseudobulk (RPM)')+
+            labs(x=f'{x2.feature_id.iloc[0]} psuedobulk (RPM)')+
             theme(legend_position='none')
     )
 
+    # %%
+    x1 = x[['pseudo_mat', 'bulk_mat', 'pseudo_num_cells', 'feature_id']].copy()
+    x1['bulk_mat'] = 1e6*x1.bulk_mat/x1.bulk_mat.sum(dim='gene_id')
+    x1['pseudo_mat'] = 1e6*x1.pseudo_mat/x1.pseudo_mat.sum(dim='gene_id')
+    x2 = x1.bulk_mat
+    x1['bulk_mean'] = x2.mean(dim='sample_id')
+    x1['bulk_std'] = x2.std(dim='sample_id')
+    x1['bulk_mat'] = (x2-x1.bulk_mean)/x1.bulk_std
+    x2 = x1.pseudo_mat
+    x1['pseudo_mat'] = (x2-x2.mean(dim='sample_id'))/x2.std(dim='sample_id')
+    x1 = x1.sel(gene_id=x1.bulk_mat.isnull().sum(dim='sample_id')==0)
+    x1 = x1.fillna(0)
+
+    import statsmodels.api as sm
+    x2 = xa.apply_ufunc(
+        lambda X, y: sm.OLS(y, X).fit().params,
+        x1.pseudo_mat, x1.bulk_mat,
+        input_core_dims=[['gene_id', 'cell_type'], ['gene_id']],
+        output_core_dims=[['cell_type']],
+        vectorize=True
+    )
+    x1['coef'] = x2
+
     
+    # %%
+    plt.hist(np.clip(x1.bulk_mat.data[0,:].ravel(), -3, 3), 100)
+
+
 # %%
