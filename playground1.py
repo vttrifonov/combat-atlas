@@ -214,14 +214,14 @@ if __name__ == '__main__':
     self = analysis
 
     # %%
-    x = self.data1
-    x2 = x.copy()
-    x2['bulk_mat'] = 1e6*x2.bulk_mat/x2.bulk_mat.sum(dim='gene_id')
-    x2['pseudo_mat'] = x2.pseudo_mat.sum(dim='cell_type')
-    x2['pseudo_mat'] = 1e6*x2.pseudo_mat/x2.pseudo_mat.sum(dim='gene_id')
-    x2 = x2.drop_dims('cell_type')
-    x2 = x2.sel(gene_id=x2.feature_id=='C5AR1').to_dataframe()
-    x2 = x2[x2.clin_Source!='COVID_HCW_MILD']
+    x3 = self.data1.copy()
+    x3['bulk_mat'] = 1e6*x3.bulk_mat/x3.bulk_mat.sum(dim='gene_id')
+    x3['pseudo_mat'] = x3.pseudo_mat.sum(dim='cell_type')
+    x3['pseudo_mat'] = 1e6*x3.pseudo_mat/x3.pseudo_mat.sum(dim='gene_id')
+    x3 = x3.sel(sample_id=x3.clin_Source!='COVID_HCW_MILD')
+
+    # %%
+    x2 = x3.sel(gene_id=x3.feature_id=='C5AR1').to_dataframe().reset_index()    
     print(
         ggplot(x2)+aes('bulk_mat', 'pseudo_mat')+
             geom_point()+
@@ -234,17 +234,10 @@ if __name__ == '__main__':
     )
 
     # %%
-    x = self.data1
-    x2 = x.copy()
-    x2['bulk_mat'] = 1e6*x2.bulk_mat/x2.bulk_mat.sum(dim='gene_id')
-    x2['pseudo_mat'] = x2.pseudo_mat.sum(dim='cell_type')
-    x2['pseudo_mat'] = 1e6*x2.pseudo_mat/x2.pseudo_mat.sum(dim='gene_id')
-    x2 = x2.drop_dims('cell_type')
-    x2 = x2.sel(sample_id=x2.clin_Source!='COVID_HCW_MILD')
-    x2 = x2.isel(sample_id=0)
-    x2 = x2.to_dataframe().reset_index()
+    x2 = x3.isel(sample_id=0).to_dataframe().reset_index()
     x2['f'] = x2.feature_id.str.contains("^RPL|^RPS|^MT-", regex=True)
     x2 = x2.sort_values('f')
+
     print(
         ggplot(x2)+aes('np.log10(bulk_mat)', 'np.log10(pseudo_mat)')+
             geom_point(aes(color='f'))+
@@ -257,13 +250,7 @@ if __name__ == '__main__':
     )
 
     # %%
-    x = self.data1
-    x2 = x.bulk_mat
-    x2 = 1e6*x2/x2.sum(dim='gene_id')
-    x2 = x2.sel(gene_id=x2.feature_id=='C5AR1')
-    x2 = xa.merge([x2, x.clin_Source]).to_dataframe()
-    x2 = x2[x2.clin_Source!='COVID_HCW_MILD']
-
+    x2 = x3.sel(gene_id=x3.feature_id=='C5AR1').to_dataframe().reset_index()
     print(
         ggplot(x2)+aes('clin_Source', 'bulk_mat')+
             geom_violin(aes(fill='clin_Source'))+
@@ -272,14 +259,6 @@ if __name__ == '__main__':
             labs(x=f'{x2.feature_id.iloc[0]} bulk (RPM)')+
             theme(legend_position='none')
     )
-
-    # %%
-    x = self.data1
-    x2 = x.pseudo_mat.sum(dim='cell_type')
-    x2 = 1e6*x2/x2.sum(dim='gene_id')
-    x2 = x2.sel(gene_id=x2.feature_id=='C5AR1')
-    x2 = xa.merge([x2, x.clin_Source]).to_dataframe()
-    x2 = x2[x2.clin_Source!='COVID_HCW_MILD']
 
     print(
         ggplot(x2)+aes('clin_Source', 'pseudo_mat')+
@@ -290,9 +269,11 @@ if __name__ == '__main__':
             theme(legend_position='none')
     )
 
+
     # %%
     import statsmodels.api as sm
 
+    x = self.data1.copy()
     x1 = x[['pseudo_mat', 'bulk_mat', 'pseudo_num_cells', 'feature_id']].copy()
     x1['bulk_mat'] = 1e6*x1.bulk_mat/x1.bulk_mat.sum(dim='gene_id')
     x1['pseudo_mat'] = 1e6*x1.pseudo_mat/x1.pseudo_mat.sum(dim='gene_id')
@@ -313,5 +294,4 @@ if __name__ == '__main__':
     )
     x1['coef'] = x2
 
-
-# %%
+    # %%
