@@ -150,6 +150,63 @@ class _analysis:
         ).rename('bulk_mat')
         return x
 
+    @compose(property, lazy)
+    def data1(self):
+        x1 = self.pseudobulk1
+        x1 = x1.rename(
+            pseudo1_Annotation_major_subset='cell_type'
+        )
+        x1 = xa.merge([
+            x1, 
+            self.annot.feature_gene_ids.rename('gene_id')
+        ]).set_coords('gene_id').\
+            swap_dims(feature_id='gene_id')
+
+        x3 = self.annot.cells_COMBAT_participant_timepoint_ID.sel(
+            scRNASeq_sample_ID=x1.pseudo1_scRNASeq_sample_ID
+        ).rename('COMBAT_participant_timepoint_ID').drop('scRNASeq_sample_ID')
+        x1 = xa.merge([x1, x3])
+
+        x3 = [
+            x1.COMBAT_participant_timepoint_ID.to_series(), 
+            x1.cell_type.to_series()
+        ]
+        x3 = pd.MultiIndex.from_tuples(list(zip(*x3)))
+        x3 = xa.DataArray(x3, [x1.pseudo1_id], name='new_id')
+        x1 = x1.groupby(x3).apply(lambda x: xa.merge([
+            x.pseudo1_mat.sum(dim='pseudo1_id').rename('pseudo_mat'),
+            x.pseudo1_num_cells.sum(dim='pseudo1_id').rename('pseudo_num_cells')
+        ])).unstack('new_id').rename(
+            new_id_level_0='COMBAT_participant_timepoint_ID',
+            new_id_level_1='cell_type'
+        )
+        x1 = x1.fillna(0)
+        
+        x2 = self.bulk
+        x2 = xa.merge([
+            x2,
+            self.annot.bulk_COMBAT_participant_timepoint_ID.\
+                rename('COMBAT_participant_timepoint_ID')
+        ], join='inner').set_coords('COMBAT_participant_timepoint_ID').\
+            swap_dims(RNASeq_sample_ID='COMBAT_participant_timepoint_ID').\
+            drop('RNASeq_sample_ID')
+
+        x1 = xa.merge([x1, x2], join='inner')
+
+        x1 = x1.merge(
+            self.annot.drop_dims(set(self.annot.dims)-set(['COMBAT_participant_timepoint_ID'])),
+            join='inner'
+        )
+        x1 = x1.merge(
+            self.annot.drop_dims(set(self.annot.dims)-set(['COMBAT_ID'])).\
+                sel(COMBAT_ID=x1.clin_COMBAT_ID).drop('COMBAT_ID'),
+            join='inner'
+        )
+
+        x1 = x1.rename(COMBAT_participant_timepoint_ID='sample_id')
+
+        return x1
+
 analysis = _analysis()
 
 # %%
@@ -157,62 +214,7 @@ if __name__ == '__main__':
     self = analysis
 
     # %%
-    x1 = self.pseudobulk1
-    x1 = x1.rename(
-        pseudo1_Annotation_major_subset='cell_type'
-    )
-    x1 = xa.merge([
-        x1, 
-        self.annot.feature_gene_ids.rename('gene_id')
-    ]).set_coords('gene_id').\
-        swap_dims(feature_id='gene_id')
-
-    x3 = self.annot.cells_COMBAT_participant_timepoint_ID.sel(
-        scRNASeq_sample_ID=x1.pseudo1_scRNASeq_sample_ID
-    ).rename('COMBAT_participant_timepoint_ID').drop('scRNASeq_sample_ID')
-    x1 = xa.merge([x1, x3])
-
-    x3 = [
-        x1.COMBAT_participant_timepoint_ID.to_series(), 
-        x1.cell_type.to_series()
-    ]
-    x3 = pd.MultiIndex.from_tuples(list(zip(*x3)))
-    x3 = xa.DataArray(x3, [x1.pseudo1_id], name='new_id')
-    x1 = x1.groupby(x3).apply(lambda x: xa.merge([
-        x.pseudo1_mat.sum(dim='pseudo1_id').rename('pseudo_mat'),
-        x.pseudo1_num_cells.sum(dim='pseudo1_id').rename('pseudo_num_cells')
-    ])).unstack('new_id').rename(
-        new_id_level_0='COMBAT_participant_timepoint_ID',
-        new_id_level_1='cell_type'
-    )
-    x1 = x1.fillna(0)
-    
-    x2 = self.bulk
-    x2 = xa.merge([
-        x2,
-        self.annot.bulk_COMBAT_participant_timepoint_ID.\
-            rename('COMBAT_participant_timepoint_ID')
-    ], join='inner').set_coords('COMBAT_participant_timepoint_ID').\
-        swap_dims(RNASeq_sample_ID='COMBAT_participant_timepoint_ID').\
-        drop('RNASeq_sample_ID')
-
-    x1 = xa.merge([x1, x2], join='inner')
-
-    x1 = x1.merge(
-        self.annot.drop_dims(set(self.annot.dims)-set(['COMBAT_participant_timepoint_ID'])),
-        join='inner'
-    )
-    x1 = x1.merge(
-        self.annot.drop_dims(set(self.annot.dims)-set(['COMBAT_ID'])).\
-            sel(COMBAT_ID=x1.clin_COMBAT_ID).drop('COMBAT_ID'),
-        join='inner'
-    )
-
-    x1 = x1.rename(COMBAT_participant_timepoint_ID='sample_id')
-
-    x = x1
-
-    # %%
+    x = self.data1
     x2 = x.copy()
     x2['bulk_mat'] = 1e6*x2.bulk_mat/x2.bulk_mat.sum(dim='gene_id')
     x2['pseudo_mat'] = x2.pseudo_mat.sum(dim='cell_type')
@@ -232,13 +234,14 @@ if __name__ == '__main__':
     )
 
     # %%
+    x = self.data1
     x2 = x.copy()
     x2['bulk_mat'] = 1e6*x2.bulk_mat/x2.bulk_mat.sum(dim='gene_id')
     x2['pseudo_mat'] = x2.pseudo_mat.sum(dim='cell_type')
     x2['pseudo_mat'] = 1e6*x2.pseudo_mat/x2.pseudo_mat.sum(dim='gene_id')
     x2 = x2.drop_dims('cell_type')
-    x2 = x2.sel(COMBAT_participant_timepoint_ID=x2.clin_Source!='COVID_HCW_MILD')
-    x2 = x2.isel(COMBAT_participant_timepoint_ID=0)
+    x2 = x2.sel(sample_id=x2.clin_Source!='COVID_HCW_MILD')
+    x2 = x2.isel(sample_id=0)
     x2 = x2.to_dataframe().reset_index()
     x2['f'] = x2.feature_id.str.contains("^RPL|^RPS|^MT-", regex=True)
     x2 = x2.sort_values('f')
@@ -254,13 +257,11 @@ if __name__ == '__main__':
     )
 
     # %%
+    x = self.data1
     x2 = x.bulk_mat
     x2 = 1e6*x2/x2.sum(dim='gene_id')
     x2 = x2.sel(gene_id=x2.feature_id=='C5AR1')
-    x2 = xa.merge([
-        x2,
-        x.drop_dims(set(x.dims)-set(['COMBAT_participant_timepoint_ID']))
-    ]).to_dataframe()
+    x2 = xa.merge([x2, x.clin_Source]).to_dataframe()
     x2 = x2[x2.clin_Source!='COVID_HCW_MILD']
 
     print(
@@ -273,13 +274,11 @@ if __name__ == '__main__':
     )
 
     # %%
+    x = self.data1
     x2 = x.pseudo_mat.sum(dim='cell_type')
     x2 = 1e6*x2/x2.sum(dim='gene_id')
     x2 = x2.sel(gene_id=x2.feature_id=='C5AR1')
-    x2 = xa.merge([
-        x2,
-        x.drop_dims(set(x.dims)-set(['COMBAT_participant_timepoint_ID']))
-    ]).to_dataframe()
+    x2 = xa.merge([x2, x.clin_Source]).to_dataframe()
     x2 = x2[x2.clin_Source!='COVID_HCW_MILD']
 
     print(
@@ -292,6 +291,8 @@ if __name__ == '__main__':
     )
 
     # %%
+    import statsmodels.api as sm
+
     x1 = x[['pseudo_mat', 'bulk_mat', 'pseudo_num_cells', 'feature_id']].copy()
     x1['bulk_mat'] = 1e6*x1.bulk_mat/x1.bulk_mat.sum(dim='gene_id')
     x1['pseudo_mat'] = 1e6*x1.pseudo_mat/x1.pseudo_mat.sum(dim='gene_id')
@@ -303,8 +304,6 @@ if __name__ == '__main__':
     x1['pseudo_mat'] = (x2-x2.mean(dim='sample_id'))/x2.std(dim='sample_id')
     x1 = x1.sel(gene_id=x1.bulk_mat.isnull().sum(dim='sample_id')==0)
     x1 = x1.fillna(0)
-
-    import statsmodels.api as sm
     x2 = xa.apply_ufunc(
         lambda X, y: sm.OLS(y, X).fit().params,
         x1.pseudo_mat, x1.bulk_mat,
@@ -313,10 +312,6 @@ if __name__ == '__main__':
         vectorize=True
     )
     x1['coef'] = x2
-
-    
-    # %%
-    plt.hist(np.clip(x1.bulk_mat.data[0,:].ravel(), -3, 3), 100)
 
 
 # %%
