@@ -29,6 +29,16 @@ class _data:
         return x 
 
     @compose(property, lazy)
+    def rnaseq_wb_logcpm(self):
+        x = config.cache/'download'/'CBD-KEY-RNASEQ-WB'/'Logcpm_143_23063.txt'
+        x = pd.read_csv(x, sep='\t')
+        x = xa.DataArray(
+            x, coords=[('feature', x.index), ('sample', x.columns)],
+            name='rnaseq'
+        )
+        return x 
+
+    @compose(property, lazy)
     def citeseq1(self):
         x = config.cache/'download'/'COMBAT-CITESeq-DATA.h5ad'
         x = scanpy.read(x)
