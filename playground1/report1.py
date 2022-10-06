@@ -1,6 +1,6 @@
 # %%
-import re
 from plotnine import *
+import matplotlib.pyplot as plt
 import numpy as np
 from combat_atlas.playground1 import analysis
 
@@ -44,16 +44,62 @@ print(
         )
 )
 
+
 # %%
-x2 = x3[['pseudo_mat', 'bulk_mat']].to_dataframe().reset_index()
-x2 = x2.groupby(['gene_id', 'feature_id']).apply(
-    lambda x: x[['pseudo_mat', 'bulk_mat']].corr().iloc[0,1]
+import sparse
+import xarray as xa
+from combat_atlas.sigs import sigs
+from combat_atlas.sigs.fit import fit_gsea
+
+x2 = xa.apply_ufunc(
+    lambda x, y: np.corrcoef(x, y)[0,1],
+    x3.pseudo_mat, x3.bulk_mat,
+    input_core_dims=[['sample_id'], ['sample_id']],
+    output_core_dims=[[]],
+    vectorize=True
+).rename('R').to_dataset().dropna('gene_id')
+x2 = x2.swap_dims(gene_id='feature_id')
+x2 = xa.merge([x2, self.feature_entrez], join='inner')
+x2['R'] = xa.apply_ufunc(
+    np.matmul, x2.symbol_entrez, x2.R,
+    input_core_dims=[['entrez_id', 'feature_id'], ['feature_id']],
+    output_core_dims=[['entrez_id']]
 )
-x2 = x2.rename('R').reset_index()
-print(
-    ggplot(x2)+aes('R')+
-        geom_freqpoly(30)        
-)
+x2['R'] = x2.R/x2.symbol_entrez.sum(dim='feature_id')
+x2 = x2.sel(entrez_id=x2.R.dropna('entrez_id').entrez_id)
+x2 = x2.rename(entrez_id='gene')
+x4 = x2.symbol_entrez.to_series_sparse().reset_index()
+x4 = x4.groupby('gene').feature_id.apply(lambda x: ','.join(x)).rename('symbol')
+x4 = x4.to_xarray()
+x2['symbol'] = x4
+x2 = x2.drop_dims('feature_id')
+
+#print(
+#    ggplot(x2.to_dataframe().reset_index())+aes('R')+geom_freqpoly(bins=30)
+#)
+
+x2['t'] = x2.R**2
+x2.t.data = sparse.COO(x2.t.data)
+x2 = xa.merge([x2, sigs.all1.rename('s')], join='inner')
+
+x5 = fit_gsea(x2.t.expand_dims(g=[1]), x2.s, 1e5)
+x5 = x5.squeeze('g').drop('g')
+x2.t.data = x2.t.data.todense()
+
+x6 = x5[['ES', 'NES', 'padj']].to_dataframe().reset_index()
+x6 = x6.sort_values('padj')
+
+# %%
+x6[x6.sig.str.contains('NEUTRO')]
+x6.query('NES<0 & padj<0.2')
+
+# %%
+x7 = x5.sel(sig='GOBP_NEUTROPHIL_MEDIATED_KILLING_OF_GRAM_NEGATIVE_BACTERIUM')
+x7 = x7.sel(gene=x7.leadingEdge.todense()==1)
+x7 = x2.sel(gene=x7.gene.data)
+x7 = x7.sel(sig=x7.s.sum(dim='gene').todense()>0)
+
+x7[['R', 'symbol']].to_dataframe().sort_values('R')
 
 # %%
 x2 = x3.sel(gene_id=x3.feature_id=='C5AR1').to_dataframe().reset_index()

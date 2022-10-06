@@ -236,6 +236,16 @@ class _analysis:
 
         return x1
 
+    @compose(property, lazy, XArrayCache())
+    def feature_entrez(self):
+        x = self.annot.feature_id.to_series()
+        x = symbol_entrez(x)
+        x = x.rename(
+            symbol='feature_id',
+            Entrez_Gene_ID = 'entrez_id'
+        )
+        return x
+
 analysis = _analysis()
 
 # %%
