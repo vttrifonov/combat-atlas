@@ -153,6 +153,15 @@ class _analysis:
         return x
 
     @compose(property, lazy)
+    def bulk1(self):
+        x = data.rnaseq_wb_logcpm
+        x = x.rename(
+            feature='gene_id',
+            sample='RNASeq_sample_ID'
+        ).rename('bulk1_mat')
+        return x
+
+    @compose(property, lazy)
     def cell_type_freq1(self):
         import statsmodels.api as sm
 
@@ -211,7 +220,7 @@ class _analysis:
         )
         x1 = x1.fillna(0)
         
-        x2 = self.bulk
+        x2 = 2**self.bulk1.rename('bulk_mat')
         x2 = xa.merge([
             x2,
             self.annot.bulk_COMBAT_participant_timepoint_ID.\
@@ -238,6 +247,8 @@ class _analysis:
 
     @compose(property, lazy, XArrayCache())
     def feature_entrez(self):
+        from ..sigs.entrez import symbol_entrez
+
         x = self.annot.feature_id.to_series()
         x = symbol_entrez(x)
         x = x.rename(
@@ -245,6 +256,106 @@ class _analysis:
             Entrez_Gene_ID = 'entrez_id'
         )
         return x
+
+    @compose(property, lazy)
+    def data2(self):
+        import sparse
+        from scipy.stats import rankdata
+        from ..sigs import sigs
+        from ..sigs.fit import fit_gsea
+        
+        x3 = self.data1.copy()
+        x3['pseudo_mat'] = x3.pseudo_mat.sum(dim='cell_type')
+        x3['pseudo_mat'] = 1e6*x3.pseudo_mat/x3.pseudo_mat.sum(dim='gene_id')
+        x3 = x3.drop_dims('cell_type')
+        #x3 = x3.sel(sample_id=x3.clin_Source.isin(['HV', 'COVID_MILD']))
+        x3 = x3.sel(sample_id=x3.clin_Source.isin(['COVID_CRIT', 'COVID_SEV', 'Sepsis']))
+
+        x2 = xa.apply_ufunc(
+            lambda x, y: np.corrcoef(rankdata(x), rankdata(y))[0,1],
+            x3.pseudo_mat, x3.bulk_mat,
+            input_core_dims=[['sample_id'], ['sample_id']],
+            output_core_dims=[[]],
+            vectorize=True
+        ).rename('R').to_dataset().dropna('gene_id')
+        x2 = x2.swap_dims(gene_id='feature_id')
+        x2 = xa.merge([x2, self.feature_entrez], join='inner')
+        x2['R'] = xa.apply_ufunc(
+            np.matmul, x2.symbol_entrez, x2.R,
+            input_core_dims=[['entrez_id', 'feature_id'], ['feature_id']],
+            output_core_dims=[['entrez_id']]
+        )
+        x2['R'] = x2.R/x2.symbol_entrez.sum(dim='feature_id')
+        x2 = x2.sel(entrez_id=x2.R.dropna('entrez_id').entrez_id)
+        x2 = x2.rename(entrez_id='gene')
+        x4 = x2.symbol_entrez.to_series_sparse().reset_index()
+        x4 = x4.groupby('gene').feature_id.apply(lambda x: ','.join(x)).rename('symbol')
+        x4 = x4.to_xarray()
+        x2['symbol'] = x4
+        x2 = x2.drop_dims('feature_id')
+
+        x5 = x2.R.copy().rename('t')
+        x5 = np.abs(x5)
+        x5.data = sparse.COO(x5.data)
+        x5 = xa.merge([x5, sigs.all1.rename('s')], join='inner')
+        x5 = fit_gsea(x5.t.expand_dims(g=[1]), x5.s, 1e5)
+        x5 = x5.squeeze('g').drop('g')
+        x2 = xa.merge([x2, x5], join='inner')
+
+        return x2
+
+    @compose(property, lazy)
+    def data3(self):
+        import sparse
+        from scipy.stats import rankdata
+        from ..sigs import sigs
+        from ..sigs.fit import fit_gsea
+        
+        x3 = self.data1.copy()
+        x3 = x3.drop_dims('cell_type')
+        x3 = x3.sel(sample_id=x3.clin_Source!='COVID_HCW_MILD')
+        x4 = {
+            'HV': 0,
+            'COVID_MILD': 1,
+            'COVID_SEV': 2,
+            'COVID_CRIT': 3,
+            'Sepsis': 3,
+        }
+        x3['severity'] = 'sample_id', [x4[s] for s in x3.clin_Source.data]
+
+        x2 = xa.apply_ufunc(
+            lambda x, y: np.corrcoef(rankdata(x), (y))[0,1],
+            x3.bulk_mat, x3.severity,
+            input_core_dims=[['sample_id'], ['sample_id']],
+            output_core_dims=[[]],
+            vectorize=True
+        ).rename('R').to_dataset().dropna('gene_id')
+        x2 = x2.swap_dims(gene_id='feature_id')
+        x2 = xa.merge([x2, self.feature_entrez], join='inner')
+        x2['R'] = xa.apply_ufunc(
+            np.matmul, x2.symbol_entrez, x2.R,
+            input_core_dims=[['entrez_id', 'feature_id'], ['feature_id']],
+            output_core_dims=[['entrez_id']]
+        )
+        x2['R'] = x2.R/x2.symbol_entrez.sum(dim='feature_id')
+        x2 = x2.sel(entrez_id=x2.R.dropna('entrez_id').entrez_id)
+        x2 = x2.rename(entrez_id='gene')
+        x4 = x2.symbol_entrez.to_series_sparse().reset_index()
+        x4 = x4.groupby('gene').feature_id.apply(lambda x: ','.join(x)).rename('symbol')
+        x4 = x4.to_xarray()
+        x2['symbol'] = x4
+        x2 = x2.drop_dims('feature_id')
+
+        x5 = x2.R.copy().rename('t')
+        x5.data = sparse.COO(x5.data)
+        x5 = xa.merge([x5, sigs.all1.rename('s')], join='inner')
+        x5 = fit_gsea(x5.t.expand_dims(g=[1]), x5.s, 1e5)
+        x5 = x5.squeeze('g').drop('g')
+        x2 = xa.merge([x2, x5], join='inner')
+
+        return x2
+
+
 
 analysis = _analysis()
 
