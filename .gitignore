@@ -4,3 +4,4 @@ combat_atlas
 __pycache__
 *.html
 renv/
+.ipynb_checkpoints
