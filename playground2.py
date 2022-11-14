@@ -87,29 +87,38 @@ print(
 from types import SimpleNamespace
 
 class _analysis1:
-    @compose(property, lazy, XArrayCache())
-    def gsva(self):
+    @compose(property, lazy)
+    def gsva_data(self):
         from .sigs._sigs import sigs
-        from .sigs.gsva import gsva
+
         x2 = self.x2
-        x1 = sigs.all1
+        x1 = sigs.all1.rename(gene='entrez')
         x1 = x1.sel(sig=x1.sig_prefix.isin(["KEGG1", "HALLMARK"]))
         x1 = xa.merge([
             x1,
-            self.feature_entrez.rename(entrez='gene')
+            self.feature_entrez
         ], join='inner')
         x1 = xa.merge([
             x1,
-            self.log1p_rpm.log1p_rpm.rename(group='sample')
+            self.log1p_rpm.log1p_rpm
         ], join='inner')
         x1['log1p_rpm'] = xa.apply_ufunc(
             np.matmul, x1.feature_entrez, x1.log1p_rpm,
-            input_core_dims=[['gene', x2.feature], [x2.feature, 'sample']],
-            output_core_dims=[['gene', 'sample']]
+            input_core_dims=[['entrez', x2.feature], [x2.feature, 'group']],
+            output_core_dims=[['entrez', 'group']]
         )
         x1['log1p_rpm'] = x1.log1p_rpm/x1.feature_entrez.sum(dim=x2.feature)
-        x1['gene'] = x1.gene.astype(np.int32)
+        x1['entrez'] = x1.entrez.astype(np.int32)
+        return x1
 
+    @compose(property, lazy, XArrayCache())
+    def gsva(self):
+        from .sigs.gsva import gsva
+
+        x1 = self.gsva_data.rename(
+            entrez='gene',
+            group='sample'
+        )
         x3 = gsva(
             x1.log1p_rpm,
             x1.set.to_series_sparse().reset_index().drop(columns=['set'])
@@ -206,5 +215,116 @@ class _combat_analysis1(_analysis1):
 
 x1 = _combat_analysis1()
 
-self = x1
+# %%
+x1.summary2
+
+# %%
+x2 = xa.merge([x1.gsva, x1.gsva_data, x1.log1p_rpm.drop_dims('feature_id')], join='inner')
+x2 = x2.sel(sig=['HALLMARK_HYPOXIA', 'HALLMARK_INTERFERON_GAMMA_RESPONSE'])
+
+# %%
+x3 = x2[['gsva', x1.x2.diag]].to_dataframe().reset_index()
+x3['sig'] = x3.sig.str.replace('_', '\n')
+print(
+    ggplot(x3)+
+        aes(x1.x2.diag, 'gsva')+
+        geom_violin(aes(fill=x1.x2.diag))+
+        geom_boxplot(width=0.1)+
+        geom_jitter(width=0.1, size=0.5, alpha=0.5)+
+        labs(x='')+
+        theme(
+            axis_text_x=element_text(angle=45, hjust=1),
+            figure_size=(5, 4),
+            legend_position='none'
+        )+
+        facet_grid('sig~.', scales='free_y')
+)
+
+
+# %%
+x2 = x1.summary2.merge(
+    pd.read_csv(x1.storage/'decoi-c1_pbmc-summary2.csv'),
+    on=['sig', 'sig_prefix']
+)
+
+# %%
+print(
+    ggplot(x2)+
+        aes('HV', 'control')+
+        geom_point()+
+        geom_point(
+            data=x2[(x2.sig_prefix=='HALLMARK') & (x2.sig.isin(['HYPOXIA', 'INTERFERON_GAMMA_RESPONSE']))],
+            color='red'            
+        )+
+        geom_smooth(method='lm')+
+        geom_label(
+            data=x2[(x2.sig_prefix=='HALLMARK') & (x2.sig.isin(['HYPOXIA', 'INTERFERON_GAMMA_RESPONSE']))],
+            mapping=aes(label='sig'),
+            color='red', alpha=0.8, size=7,
+            adjust_text=dict(
+                expand_points=(2, 2),
+                expand_text=(3,3),
+                arrowprops=dict(
+                    arrowstyle='-',
+                    color='red'
+                )
+            )
+        )+
+        labs(x='COMBAT: HV', y='DECOI: control', title='GSVA')+
+        theme(
+            figure_size=(4, 4)
+        )
+)
+
+# %%
+print(
+    ggplot(x2)+
+        aes('COVID_CRIT', 'severe')+
+        geom_point()+
+        geom_point(
+            data=x2[(x2.sig_prefix=='HALLMARK') & (x2.sig=='HYPOXIA')],
+            color='red'            
+        )+
+        geom_smooth(method='lm')+
+        geom_label(
+            data=x2[(x2.sig_prefix=='HALLMARK') & (x2.sig.isin(['HYPOXIA', 'INTERFERON_GAMMA_RESPONSE']))],
+            mapping=aes(label='sig'),
+            color='red', alpha=0.8, size=7,
+            adjust_text=dict(
+                expand_points=(2, 2),
+                expand_text=(3,3),
+                arrowprops=dict(
+                    arrowstyle='-',
+                    color='red'
+                )
+            )
+        )+
+        labs(x='COMBAT: COVID_CRIT-HV', y='DECOI: severe-control', title='Difference to control')+
+        theme(
+            figure_size=(4, 4)
+        )
+)
+
+
+# %%
+x3 = x2[['HV', 'COVID_CRIT', 'COVID_HCW_MILD', 'COVID_MILD',
+       'COVID_SEV', 'Sepsis','control', 'mild', 'severe']]
+x3 = np.round(x3.corr(), 2).reset_index()
+x3 = x3.melt(id_vars='index')
+print(
+    ggplot(x3)+aes('index', 'variable', fill='value')+
+        geom_tile()+
+        geom_text(aes(label='value'))+
+        scale_fill_gradient2(
+            low='blue', mid='white', high='red',
+            midpoint=0
+        )+
+        theme(
+            axis_text_x=element_text(angle=45, hjust=1)
+        )+
+        labs(
+            x='', y='',
+            fill='Spearman R'
+        )
+)
 # %%
