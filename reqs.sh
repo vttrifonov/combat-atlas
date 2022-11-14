@@ -14,3 +14,4 @@ pip install rpy2
 
 conda install radian
 conda install psycopg2
+pip install adjustText
