@@ -101,9 +101,17 @@ class _analysis:
     @compose(property, lazy, XArrayCache())
     def pseudobulk1(self):
         x = data.citeseq1
+        #o = x.obs.copy()   
 
-        o = x.obs.copy()   
+        o = self.annot[[
+            'cell_scRNASeq_sample_ID', 
+            'cell_Annotation_major_subset', 
+            'cell_Annotation_minor_subset'
+        ]].sel(cell_id=x.obs.index.to_list())
+        o = o.rename({k: k[5:] for k in o.keys()})
+        o = o.to_dataframe()        
         o['row'] = range(o.shape[0])
+        
         x1 = x.layers['raw']
         x1 = [        
             (i, x1[r.to_list(),])
