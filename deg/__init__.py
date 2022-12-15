@@ -263,3 +263,6 @@ if __name__ == '__main__':
     self = analysis   
 
     # %%
+    from ..playground1 import analysis as playground1
+    playground1.pseudobulk1.pseudo1_Annotation_major_subset.to_series().drop_duplicates()
+# %%
