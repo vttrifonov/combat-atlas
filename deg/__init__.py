@@ -13,7 +13,6 @@ import pandas as pd
 from ..common import helpers
 from ..common.caching import compose, lazy, XArrayCache
 from .._helpers import config, groupby
-from ..playground1 import analysis as playground1
 
 # %%
 class _analysis:    
@@ -21,6 +20,7 @@ class _analysis:
 
     @property
     def data1(self):
+        from ..playground1 import analysis as playground1
         x = playground1.pseudobulk1
         x = x.rename(pseudo1_id='group_id1')
         x = x.rename({k: k[8:] for k in x.keys()})
@@ -34,6 +34,7 @@ class _analysis:
 
     @property
     def data2(self):
+        from ..playground1 import analysis as playground1
         x1 = self.data1.copy()
         x2 = playground1.annot.cells_COMBAT_participant_timepoint_ID.sel(
             scRNASeq_sample_ID=x1.scRNASeq_sample_ID
