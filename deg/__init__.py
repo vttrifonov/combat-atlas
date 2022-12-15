@@ -235,19 +235,16 @@ class _analysis:
     def genes2(self):
         return self.data2.feature_id.rename('symbol')
 
-    def rnaseq_counts2(self, purification, cell_type):  
+    def rnaseq_counts2(self, major):  
         analysis = self
         class counts:      
-            storage = analysis.storage/'rnaseq_counts2'/(purification+'_'+cell_type)
+            storage = analysis.storage/'rnaseq_counts2'/major
 
             @compose(property, lazy, XArrayCache())
             def data(self):
                 import sparse
                 x = analysis.data2.drop_dims('group_id1')
-                x = x.sel(group_id2=x['purification']==purification)
-                x = x.sel(
-                    group_id2=x['blueprint.labels']==cell_type
-                )
+                x = x.sel(group_id2=x['major']==major)
                 x = x['counts']
                 x.data = sparse.COO(x.data)
                 return x
@@ -263,5 +260,7 @@ if __name__ == '__main__':
     self = analysis   
 
     # %%
-    
+    for x in self.data1.major.to_series().drop_duplicates():
+        self.rnaseq_counts2(x)
+
 # %%
