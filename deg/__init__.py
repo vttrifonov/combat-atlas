@@ -185,19 +185,19 @@ class _analysis:
         R.source('deg/limma.R')
 
         x1 = self.voom2.copy()
-        x2 = x1['var'].to_series().drop_duplicates().to_list()
+        x2 = x1['group'].to_series().drop_duplicates().to_list()
         x2 = [['HV', x] for x in set(x2)-set(['HV'])]
 
         i = 0
-        x4 = []        
+        x4 = []            
         x3 = x1[['var_group_id3', 'group']].to_dataframe()
-        #x3 = x3[x3.var_group_id3.isin([0])]
+        #x3 = x3[x3.var_group_id3.isin([0,1,2])]
         for group_id3, x5 in x3.groupby('var_group_id3'):
             #group_id3, x5 = next(iter(x3.groupby('var_group_id3')))
             print(group_id3)            
-            x5 = x5.reset_index().set_index('group_per_sample')['var']
+            x5 = x5.reset_index().set_index('group')['var']
             for x6 in x2:                
-                #x6 = x2[1]
+                #x6 = x2[0]
                 print(x6)
                 x8 = [x5.get(x, None) for x in x6]
                 if any(x is None for x in x8):
