@@ -4,7 +4,6 @@ if __name__ == '__main__':
 
 import tarfile
 import pandas as pd
-import scanpy
 import xarray as xa
 from .common.caching import compose, lazy
 from ._helpers import config
@@ -40,6 +39,7 @@ class _data:
 
     @compose(property, lazy)
     def citeseq1(self):
+        import scanpy
         x = config.cache/'download'/'COMBAT-CITESeq-DATA.h5ad'
         x = scanpy.read(x)
         return x
